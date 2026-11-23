@@ -16,6 +16,7 @@ from db import FRONTEND, PRODUCT_META, init_db
 from excursions_svc import router as excursions_router
 from lineage_svc import router as lineage_router
 from locks import router as locks_router
+from offline_ledger_svc import router as offline_ledger_router
 from probes_svc import router as probes_router
 from reconcile_svc import router as reconcile_router
 from route_plan_svc import router as routes_router
@@ -46,6 +47,7 @@ for r in (
     lineage_router,
     reconcile_router,
     locks_router,
+    offline_ledger_router,
     audit_router,
     calibration_router,
     routes_router,

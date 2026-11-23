@@ -4,10 +4,25 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from auth import AuthHeader, require_user, require_writer
+from attach_track import (
+    OFFLINE,
+    active_batches_for_probe,
+    offline_attached_for_probe,
+    probe_lock_key,
+    write_offline_ledger,
+)
 from db import connect, now_iso, write_audit
+from locks import release, require_lock
 from models import ProbeIn
 
 router = APIRouter(tags=["probes"])
+
+
+def _decorate(conn, row) -> dict:
+    d = dict(row)
+    d["active_batch_count"] = active_batches_for_probe(conn, d["id"])
+    d["offline_attached"] = offline_attached_for_probe(conn, d["id"])
+    return d
 
 
 @router.get("/api/probes")
@@ -26,7 +41,7 @@ def list_probes(authorization: AuthHeader = None, chamber_id: int | None = None)
                 """SELECT p.*, c.chamber_code, c.region FROM probes p
                    JOIN cold_chambers c ON c.id=p.chamber_id ORDER BY p.id"""
             ).fetchall()
-        return {"items": [dict(r) for r in rows]}
+        return {"items": [_decorate(conn, r) for r in rows]}
 
 
 @router.get("/api/probes/{probe_id}")
@@ -45,7 +60,7 @@ def get_probe(probe_id: int, authorization: AuthHeader = None):
             "SELECT * FROM calibration_records WHERE probe_id=? ORDER BY id DESC",
             (probe_id,),
         ).fetchall()
-        return {"probe": dict(row), "calibrations": [dict(x) for x in cals]}
+        return {"probe": _decorate(conn, row), "calibrations": [dict(x) for x in cals]}
 
 
 @router.post("/api/probes")
@@ -81,13 +96,32 @@ def register_probe(body: ProbeIn, authorization: AuthHeader = None):
 @router.post("/api/probes/{probe_id}/offline")
 def set_offline(probe_id: int, authorization: AuthHeader = None):
     user = require_writer(authorization)
+    lock_key = probe_lock_key(probe_id)
     with connect() as conn:
-        row = conn.execute("SELECT * FROM probes WHERE id=?", (probe_id,)).fetchone()
-        if not row:
-            raise HTTPException(404, "探头不存在")
-        conn.execute(
-            "UPDATE probes SET online_status='离线' WHERE id=?", (probe_id,)
-        )
-        write_audit(conn, user, "probe_offline", row["probe_code"], {})
-        conn.commit()
-        return {"id": probe_id, "online_status": "离线"}
+        require_lock(conn, lock_key, user)
+        try:
+            row = conn.execute("SELECT * FROM probes WHERE id=?", (probe_id,)).fetchone()
+            if not row:
+                raise HTTPException(404, "探头不存在")
+            # 甲路径：探头已在正式在批则不许置离线，批次挂接零改
+            if active_batches_for_probe(conn, probe_id) > 0:
+                write_offline_ledger(
+                    conn,
+                    user,
+                    row,
+                    "置离线",
+                    "离线偏航",
+                    "探头仍有正式在批批次，拒绝置离线；批次挂接零改",
+                )
+                conn.commit()
+                raise HTTPException(409, "探头仍有在批批次，禁止置离线")
+            if row["online_status"] == OFFLINE:
+                return {"id": probe_id, "online_status": OFFLINE, "changed": False}
+            conn.execute(
+                "UPDATE probes SET online_status='离线' WHERE id=?", (probe_id,)
+            )
+            write_audit(conn, user, "probe_offline", row["probe_code"], {})
+            conn.commit()
+            return {"id": probe_id, "online_status": "离线", "changed": True}
+        finally:
+            release(conn, lock_key, user)

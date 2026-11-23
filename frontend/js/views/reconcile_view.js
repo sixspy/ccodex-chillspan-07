@@ -11,20 +11,21 @@ export const reconcileViewTemplate = `
     <button class="secondary" @click="loadReconAll">全仓对账</button>
   </div>
   <div v-if="reconOne" class="detail-box">
-    <p>配额 {{ reconOne.quota_batches }} · 在批 {{ reconOne.active_batches }} · <span :class="reconOne.balanced ? 'ok' : 'bad'">{{ reconOne.balanced ? "平衡" : "失衡" }}</span></p>
+    <p>配额 {{ reconOne.quota_batches }} · 在线在批 {{ reconOne.active_batches }} · 离线未晋升 {{ reconOne.offline_attached_batches }} · <span :class="reconOne.balanced ? 'ok' : 'bad'">{{ reconOne.balanced ? "平衡" : "失衡" }}</span></p>
   </div>
   <div v-if="proofOne" class="detail-box">
     <p>状态 {{ proofOne.status }} · 开放游标 {{ proofOne.open_excursions }} · 温谱 {{ proofOne.spectrum_exports }}</p>
   </div>
   <table class="data-table">
-    <thead><tr><th>仓间</th><th>区域</th><th>在批</th><th>余配额</th><th>平衡</th></tr></thead>
+    <thead><tr><th>仓间</th><th>区域</th><th>在线在批</th><th>离线未晋升</th><th>余配额</th><th>平衡</th></tr></thead>
     <tbody>
-      <tr v-for="r in reconAllItems" :key="r.chamber_code">
+      <tr v-for="r in reconAllItems" :key="r.chamber_code" :class="{picked: !r.balanced}">
         <td>{{ r.chamber_code }}</td>
         <td>{{ r.region }}</td>
         <td>{{ r.active_batches }}</td>
+        <td><span class="badge" :class="r.offline_attached_batches>0?'fail':'frozen'">{{ r.offline_attached_batches }}</span></td>
         <td>{{ r.quota_left }}</td>
-        <td>{{ r.balanced ? "是" : "否" }}</td>
+        <td><span class="badge" :class="r.balanced?'pass':'fail'">{{ r.balanced ? "是" : "否" }}</span></td>
       </tr>
     </tbody>
   </table>

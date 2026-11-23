@@ -119,7 +119,11 @@ createApp({
     );
 
     const batchProbes = computed(() =>
-      probes.value.filter((p) => p.chamber_id === batchForm.value.chamber_id)
+      probes.value.filter(
+        (p) =>
+          p.chamber_id === batchForm.value.chamber_id &&
+          p.online_status === "在线"
+      )
     );
     const openableBatches = computed(() =>
       batches.value.filter((b) => b.status !== "已封批" && b.status !== "草稿")
@@ -144,6 +148,11 @@ createApp({
     }
     function probeOnlineClass(s) {
       return s === "在线" ? "pass" : "fail";
+    }
+    function attachClass(s) {
+      if (s === "正式在批" || s === "在线采样") return "pass";
+      if (s === "离线未晋升") return "fail";
+      return "frozen";
     }
     function excursionClass(s) {
       return s === "开放" ? "fail" : "pass";
@@ -500,6 +509,7 @@ createApp({
       clearFlash,
       fmtTemp,
       statusClass,
+      attachClass,
       probeOnlineClass,
       excursionClass,
       shortText,

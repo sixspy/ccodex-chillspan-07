@@ -175,6 +175,23 @@ CREATE TABLE IF NOT EXISTS audit_trail(
   payload TEXT,
   created_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS offline_ledger_days(
+  ledger_date TEXT PRIMARY KEY,
+  stance TEXT NOT NULL,
+  sealed_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS offline_ledger(
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ledger_date TEXT NOT NULL,
+  probe_id INTEGER,
+  probe_code TEXT NOT NULL,
+  action TEXT NOT NULL,
+  verdict TEXT NOT NULL,
+  detail TEXT,
+  actor TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY(probe_id) REFERENCES probes(id)
+);
 CREATE TABLE IF NOT EXISTS carrier_ingest_jobs(
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   carrier_name TEXT NOT NULL,

@@ -17,34 +17,39 @@ class LockIn(BaseModel):
 
 def try_acquire(conn, lock_key: str, holder: str) -> bool:
     now = now_iso()
+    # 原子抢锁：INSERT OR IGNORE 依赖 lock_key 主键，双会话同刻只有一方插入成功
+    cur = conn.execute(
+        "INSERT OR IGNORE INTO chamber_locks(lock_key,holder,acquired_at) VALUES (?,?,?)",
+        (lock_key, holder, now),
+    )
+    if cur.rowcount == 1:
+        return True
     row = conn.execute(
         "SELECT holder FROM chamber_locks WHERE lock_key=?", (lock_key,)
     ).fetchone()
-    if row is None:
-        conn.execute(
-            "INSERT INTO chamber_locks(lock_key,holder,acquired_at) VALUES (?,?,?)",
-            (lock_key, holder, now),
-        )
-        return True
-    if row["holder"] == holder:
+    if row is not None and row["holder"] == holder:
         return True
     conn.execute(
         """INSERT INTO contention_log(lock_key,actor,action,detail,created_at)
            VALUES (?,?,?,?,?)""",
-        (lock_key, holder, "争用", f"持有者={row['holder']}", now),
+        (lock_key, holder, "争用", f"持有者={row['holder'] if row else '未知'}", now),
     )
     return False
 
 
 def release(conn, lock_key: str, holder: str) -> None:
+    # 释放须落库：拒收/异常路径下 with 连接退出会回滚未提交的 DELETE
     conn.execute(
         "DELETE FROM chamber_locks WHERE lock_key=? AND holder=?",
         (lock_key, holder),
     )
+    conn.commit()
 
 
 def require_lock(conn, lock_key: str, holder: str) -> None:
     if not try_acquire(conn, lock_key, holder):
+        # 争用须留痕：提交争用登记后再拒写，避免外层回滚抹掉证据
+        conn.commit()
         raise HTTPException(409, "争用：后到只记争用，不写业务")
 
 

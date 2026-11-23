@@ -12,6 +12,7 @@ def validate_temp_point(value: float, target_min: float, target_max: float) -> N
 
 
 def validate_probe_online(row) -> None:
+    """离轨硬拦：批次入库与置离线均须走分轨口径（attach_track）。"""
     if row["online_status"] != "在线":
         raise HTTPException(409, "探头离线，禁止写批次")
 

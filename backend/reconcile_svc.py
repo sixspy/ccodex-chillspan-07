@@ -1,8 +1,9 @@
-"""仓间配额 vs 在批差额对账 + 互证只读。"""
+"""仓间配额 vs 在批差额对账 + 互证只读（离线挂接分轨另计）。"""
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
+from attach_track import ACTIVE_SQL, attachment_status, counts_in_active
 from auth import AuthHeader, require_user
 from db import connect
 
@@ -12,31 +13,41 @@ router = APIRouter(tags=["reconcile"])
 def _chamber_recon(conn, chamber) -> dict:
     cid = chamber["id"]
     quota = int(chamber["quota_batches"])
-    active = conn.execute(
-        """SELECT COUNT(*) c FROM temp_batches
-           WHERE chamber_id=? AND status NOT IN ('已封批','作废')""",
+    rows = conn.execute(
+        f"""SELECT p.online_status, COUNT(*) c FROM temp_batches b
+            JOIN probes p ON p.id=b.probe_id
+            WHERE b.chamber_id=? AND b.{ACTIVE_SQL}
+            GROUP BY p.online_status""",
         (cid,),
-    ).fetchone()["c"]
+    ).fetchall()
+    split = {r["online_status"]: r["c"] for r in rows}
+    online_active = int(split.get("在线", 0))
+    offline_attached = int(split.get("离线", 0))
+    formal_active = online_active + offline_attached
     sealed = conn.execute(
         """SELECT COUNT(*) c FROM temp_batches
            WHERE chamber_id=? AND status='已封批'""",
         (cid,),
     ).fetchone()["c"]
-    gap = quota - active
-    ok = active <= quota
+    gap = quota - formal_active
+    # 离线挂接不属于在线在批：有影子残留即失衡，须待晋升或作废
+    ok = online_active <= quota and offline_attached == 0
     return {
         "chamber_id": cid,
         "chamber_code": chamber["chamber_code"],
         "region": chamber["region"],
         "quota_batches": quota,
-        "active_batches": active,
+        "active_batches": online_active,
+        "formal_active_batches": formal_active,
+        "offline_attached_batches": offline_attached,
         "sealed_batches": sealed,
         "quota_left": gap,
         "balanced": ok,
         "proof": {
-            "formula": "active_batches <= quota_batches",
-            "left": active,
+            "formula": "online_active <= quota_batches and offline_attached == 0",
+            "left": online_active,
             "right": quota,
+            "offline_attached": offline_attached,
         },
     }
 
@@ -92,10 +103,16 @@ def batch_proof(batch_code: str, authorization: AuthHeader = None):
         ).fetchone()["c"]
         sealed = batch["status"] == "已封批"
         spectrum_ok = (exports >= 1) if sealed else True
+        probe = conn.execute(
+            "SELECT online_status FROM probes WHERE id=?", (batch["probe_id"],)
+        ).fetchone()
+        online = probe["online_status"] if probe else "在线"
         return {
             "batch_code": batch_code,
             "status": batch["status"],
             "generation": batch["generation"],
+            "attachment_status": attachment_status(online, batch["status"]),
+            "counts_in_active": counts_in_active(online, batch["status"]),
             "open_excursions": open_exc,
             "spectrum_exports": exports,
             "sealed": sealed,

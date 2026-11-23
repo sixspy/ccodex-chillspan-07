@@ -4,29 +4,33 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from auth import AuthHeader, require_user, require_writer
+from attach_track import offline_attached_for_probe, probe_track_status
 from db import connect, now_iso, write_audit
 from models import CalibrationIn
 
 router = APIRouter(tags=["calibration"])
 
 
+def _decorate(conn, row) -> dict:
+    d = dict(row)
+    d["attachment_status"] = probe_track_status(d["online_status"])
+    d["offline_attached"] = offline_attached_for_probe(conn, d["probe_id"])
+    return d
+
+
 @router.get("/api/calibrations")
 def list_calibrations(authorization: AuthHeader = None, probe_id: int | None = None):
     require_user(authorization)
     with connect() as conn:
+        base = """SELECT c.*, p.probe_code, p.online_status
+                  FROM calibration_records c JOIN probes p ON p.id=c.probe_id"""
         if probe_id:
             rows = conn.execute(
-                """SELECT c.*, p.probe_code FROM calibration_records c
-                   JOIN probes p ON p.id=c.probe_id
-                   WHERE c.probe_id=? ORDER BY c.id DESC""",
-                (probe_id,),
+                base + " WHERE c.probe_id=? ORDER BY c.id DESC", (probe_id,)
             ).fetchall()
         else:
-            rows = conn.execute(
-                """SELECT c.*, p.probe_code FROM calibration_records c
-                   JOIN probes p ON p.id=c.probe_id ORDER BY c.id DESC"""
-            ).fetchall()
-        return {"items": [dict(r) for r in rows]}
+            rows = conn.execute(base + " ORDER BY c.id DESC").fetchall()
+        return {"items": [_decorate(conn, r) for r in rows]}
 
 
 @router.post("/api/calibrations")

@@ -4,8 +4,27 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from auth import AuthHeader, require_user, require_writer
+from attach_track import ACTIVE_SQL, attachment_status
 from db import connect, now_iso, write_audit
 from models import ChamberIn
+
+
+def _attachment_split(conn, chamber_id: int) -> dict:
+    rows = conn.execute(
+        f"""SELECT p.online_status, COUNT(*) c FROM temp_batches b
+            JOIN probes p ON p.id=b.probe_id
+            WHERE b.chamber_id=? AND b.{ACTIVE_SQL}
+            GROUP BY p.online_status""",
+        (chamber_id,),
+    ).fetchall()
+    split = {r["online_status"]: r["c"] for r in rows}
+    online_active = int(split.get("在线", 0))
+    offline_attached = int(split.get("离线", 0))
+    return {
+        "active_batch_count": online_active + offline_attached,
+        "online_active_batch_count": online_active,
+        "offline_attached_count": offline_attached,
+    }
 
 router = APIRouter(tags=["chambers"])
 
@@ -40,20 +59,28 @@ def get_chamber(chamber_id: int, authorization: AuthHeader = None):
             (chamber_id,),
         ).fetchall()
         batches = conn.execute(
-            """SELECT id,batch_code,status,generation FROM temp_batches
-               WHERE chamber_id=? ORDER BY id DESC LIMIT 20""",
+            """SELECT b.id,b.batch_code,b.status,b.generation,
+                      p.online_status AS probe_online_status
+               FROM temp_batches b JOIN probes p ON p.id=b.probe_id
+               WHERE b.chamber_id=? ORDER BY b.id DESC LIMIT 20""",
             (chamber_id,),
         ).fetchall()
-        active = conn.execute(
-            """SELECT COUNT(*) c FROM temp_batches
-               WHERE chamber_id=? AND status NOT IN ('已封批','作废')""",
-            (chamber_id,),
-        ).fetchone()["c"]
+        split = _attachment_split(conn, chamber_id)
+        recent = []
+        for b in batches:
+            d = dict(b)
+            d["attachment_status"] = attachment_status(
+                d["probe_online_status"], d["status"]
+            )
+            recent.append(d)
+        active = split["active_batch_count"]
         return {
             "chamber": dict(ch),
             "probes": [dict(p) for p in probes],
-            "recent_batches": [dict(b) for b in batches],
+            "recent_batches": recent,
             "active_batch_count": active,
+            "online_active_batch_count": split["online_active_batch_count"],
+            "offline_attached_count": split["offline_attached_count"],
             "quota_left": int(ch["quota_batches"]) - int(active),
         }
 

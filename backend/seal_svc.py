@@ -33,13 +33,16 @@ def seal_batch(body: SealIn, authorization: AuthHeader = None):
         require_lock(conn, lock_key, user)
         try:
             batch = conn.execute(
-                """SELECT b.*, p.calibration_due, p.probe_code
+                """SELECT b.*, p.calibration_due, p.probe_code, p.online_status
                    FROM temp_batches b JOIN probes p ON p.id=b.probe_id
                    WHERE b.id=?""",
                 (body.batch_id,),
             ).fetchone()
             if not batch:
                 raise HTTPException(404, "批次不存在")
+            if batch["online_status"] != "在线":
+                # 离线未晋升影子不得封批洗白
+                raise HTTPException(409, "探头离线，批次未晋升，禁止封批")
             open_exc = conn.execute(
                 """SELECT COUNT(*) c FROM excursion_cursors
                    WHERE batch_id=? AND status='开放'""",

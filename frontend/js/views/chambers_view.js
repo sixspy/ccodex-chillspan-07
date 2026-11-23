@@ -39,14 +39,24 @@ export const chambersViewTemplate = `
   </div>
   <div v-if="chamberDetail" class="detail-box">
     <h3>仓间详情 · {{ chamberDetail.chamber.name }}</h3>
-    <p>在批 {{ chamberDetail.active_batch_count }} · 剩余配额 {{ chamberDetail.quota_left }}</p>
+    <p>在批 {{ chamberDetail.active_batch_count }} · 在线在批 {{ chamberDetail.online_active_batch_count }} · 离线未晋升 {{ chamberDetail.offline_attached_count }} · 剩余配额 {{ chamberDetail.quota_left }}</p>
     <table class="data-table compact">
       <thead><tr><th>探头</th><th>在线</th><th>校准到期</th></tr></thead>
       <tbody>
-        <tr v-for="p in chamberDetail.probes" :key="p.id">
+        <tr v-for="p in chamberDetail.probes" :key="p.id" :class="{picked: p.online_status!=='在线'}">
           <td>{{ p.probe_code }}</td>
-          <td>{{ p.online_status }}</td>
+          <td><span class="badge" :class="probeOnlineClass(p.online_status)">{{ p.online_status }}</span></td>
           <td>{{ p.calibration_due }}</td>
+        </tr>
+      </tbody>
+    </table>
+    <table class="data-table compact">
+      <thead><tr><th>批次</th><th>状态</th><th>挂接轨</th></tr></thead>
+      <tbody>
+        <tr v-for="b in chamberDetail.recent_batches" :key="b.id">
+          <td>{{ b.batch_code }}</td>
+          <td>{{ b.status }}</td>
+          <td><span class="badge" :class="attachClass(b.attachment_status)">{{ b.attachment_status }}</span></td>
         </tr>
       </tbody>
     </table>

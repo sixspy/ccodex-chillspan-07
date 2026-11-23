@@ -1,6 +1,7 @@
 export const calibrationViewTemplate = `
 <section class="panel">
   <h2>探头校准</h2>
+  <p class="hint">离线未晋升探头的校准记录同态标注，不计作在线采样。</p>
   <div class="form-row">
     <div><label>探头</label>
       <select v-model.number="calForm.probe_id"><option v-for="p in probes" :key="p.id" :value="p.id">{{ p.probe_code }}</option></select>
@@ -11,7 +12,7 @@ export const calibrationViewTemplate = `
   </div>
   <div class="actions"><button @click="addCalibration">写入校准</button></div>
   <table class="data-table">
-    <thead><tr><th>探头</th><th>校准时间</th><th>偏移</th><th>有效至</th><th>状态</th></tr></thead>
+    <thead><tr><th>探头</th><th>校准时间</th><th>偏移</th><th>有效至</th><th>状态</th><th>挂接轨</th></tr></thead>
     <tbody>
       <tr v-for="c in calibrations" :key="c.id">
         <td>{{ c.probe_code }}</td>
@@ -19,6 +20,7 @@ export const calibrationViewTemplate = `
         <td>{{ c.offset_c }}</td>
         <td>{{ c.valid_until }}</td>
         <td>{{ c.status }}</td>
+        <td><span class="badge" :class="attachClass(c.attachment_status)">{{ c.attachment_status }}</span></td>
       </tr>
     </tbody>
   </table>
